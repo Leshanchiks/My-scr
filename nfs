@@ -1,0 +1,202 @@
+if not _G.ESPGlobal then
+    _G.ESPGlobal = true
+    
+    local Players = game:GetService("Players")
+    local CoreGui = game:GetService("CoreGui")
+    local UserInputService = game:GetService("UserInputService")
+    local TeleportService = game:GetService("TeleportService")
+
+    local ESP = {
+        Enabled = true,
+        TeamColor = true,
+        DefaultColor = Color3.new(1, 0, 0),
+        Players = {},
+        Connections = {}
+    }
+
+    function ESP:Init()
+        self:Clear()
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= Players.LocalPlayer then
+                self:SetupPlayer(player)
+            end
+        end
+
+        self.Connections.PlayerAdded = Players.PlayerAdded:Connect(function(player)
+            if player ~= Players.LocalPlayer then
+                self:SetupPlayer(player)
+            end
+        end)
+
+        self.Connections.PlayerRemoving = Players.PlayerRemoving:Connect(function(player)
+            self:RemovePlayer(player)
+        end)
+    end
+
+    function ESP:SetupPlayer(player)
+        if self.Players[player] then return end
+        
+        local playerData = {
+            Highlight = nil,
+            Connections = {}
+        }
+        
+        self.Players[player] = playerData
+
+        playerData.Connections.CharacterAdded = player.CharacterAdded:Connect(function(character)
+            self:AddHighlight(player, character)
+        end)
+
+        if player.Character then
+            self:AddHighlight(player, player.Character)
+        end
+    end
+
+    function ESP:AddHighlight(player, character)
+        if not self.Enabled then return end
+        self:RemoveHighlight(player)
+
+        local humanoid = character:WaitForChild("Humanoid", 3)
+        if not humanoid then return end
+
+        local humanoidRootPart = character:FindFirstChild("HumanoidRootPart") or 
+                               character:FindFirstChild("Torso") or 
+                               character:FindFirstChild("UpperTorso")
+        
+        if not humanoidRootPart then
+            return
+        end
+
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "ESP_Highlight_" .. player.Name
+        highlight.Adornee = character
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.FillTransparency = 0.85
+        highlight.OutlineTransparency = 0.3
+        highlight.FillColor = self:GetPlayerColor(player)
+        highlight.OutlineColor = self:GetPlayerColor(player)
+        
+        highlight.Parent = CoreGui
+        self.Players[player].Highlight = highlight
+
+        if player:FindFirstChildOfClass("Team") then
+            self.Players[player].Connections.TeamChanged = player:FindFirstChildOfClass("Team").Changed:Connect(function()
+                self:UpdateColor(player)
+            end)
+        end
+    end
+
+    function ESP:UpdateColor(player)
+        if self.Players[player] and self.Players[player].Highlight then
+            local color = self:GetPlayerColor(player)
+            self.Players[player].Highlight.FillColor = color
+            self.Players[player].Highlight.OutlineColor = color
+        end
+    end
+
+    function ESP:GetPlayerColor(player)
+        if self.TeamColor and player.Team then
+            return player.Team.TeamColor.Color
+        end
+        return self.DefaultColor
+    end
+
+    function ESP:RemoveHighlight(player)
+        if self.Players[player] and self.Players[player].Highlight then
+            self.Players[player].Highlight:Destroy()
+            self.Players[player].Highlight = nil
+        end
+    end
+
+    function ESP:RemovePlayer(player)
+        if self.Players[player] then
+            self:RemoveHighlight(player)
+            
+            for _, conn in pairs(self.Players[player].Connections) do
+                if conn then
+                    conn:Disconnect()
+                end
+            end
+            
+            self.Players[player] = nil
+        end
+    end
+
+    function ESP:SetEnabled(state)
+        self.Enabled = state
+        if state then
+            for player, _ in pairs(self.Players) do
+                if player.Character then
+                    self:AddHighlight(player, player.Character)
+                end
+            end
+        else
+            for player, _ in pairs(self.Players) do
+                self:RemoveHighlight(player)
+            end
+        end
+    end
+
+    function ESP:ToggleTeamColor()
+        self.TeamColor = not self.TeamColor
+        for player, _ in pairs(self.Players) do
+            self:UpdateColor(player)
+        end
+    end
+
+    function ESP:Clear()
+        for _, conn in pairs(self.Connections) do
+            if conn then
+                conn:Disconnect()
+            end
+        end
+        self.Connections = {}
+        
+        for player, _ in pairs(self.Players) do
+            self:RemovePlayer(player)
+        end
+        self.Players = {}
+    end
+
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        
+        if input.KeyCode == Enum.KeyCode.H then
+            ESP:SetEnabled(not ESP.Enabled)
+        elseif input.KeyCode == Enum.KeyCode.J then
+            ESP:ToggleTeamColor()
+        end
+    end)
+
+    local function AutoInitializeESP()
+        while not Players.LocalPlayer do
+            wait(0.5)
+        end
+        
+        wait(2)
+        
+        ESP:Init()
+    end
+
+    spawn(AutoInitializeESP)
+
+    TeleportService.LocalPlayerTeleporting:Connect(function()
+        ESP:Clear()
+    end)
+
+    TeleportService.LocalPlayerTeleported:Connect(function()
+        wait(3)
+        AutoInitializeESP()
+    end)
+
+    spawn(function()
+        while true do
+            wait(10)
+            if not ESP.Connections.PlayerAdded or not ESP.Connections.PlayerAdded.Connected then
+                ESP:Clear()
+                AutoInitializeESP()
+            end
+        end
+    end)
+end
